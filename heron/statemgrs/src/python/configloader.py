@@ -19,7 +19,10 @@ import re
 import sys
 import yaml
 
-def load_state_manager_locations(cluster, state_manager_config_file='heron-conf/statemgr.yaml'):
+# pylint: disable=dangerous-default-value
+
+def load_state_manager_locations(cluster, state_manager_config_file='heron-conf/statemgr.yaml',
+                                 overrides={}):
   """ Reads configs to determine which state manager to use and converts them to state manager
   locations. Handles a subset of config wildcard substitution supported in the substitute method in
   com.twitter.heron.spi.common.Misc.java"""
@@ -37,12 +40,16 @@ def load_state_manager_locations(cluster, state_manager_config_file='heron-conf/
 
   config = __replace(config, wildcards, state_manager_config_file)
 
+  # merge with overrides
+  if overrides:
+    config.update(overrides)
+
   # need to convert from the format in statemgr.yaml to the format that the python state managers
   # takes. first, set reasonable defaults to local
   state_manager_location = {
       'type': 'file',
       'name': 'local',
-      'tunnelhost': 'localhost',
+      'tunnelhost': '127.0.0.1',
       'rootpath': '~/.herondata/repository/state/local',
   }
 
@@ -68,7 +75,7 @@ def __replace(config, wildcards, config_file):
   for config_key in config:
     config_value = config[config_key]
     original_value = config_value
-    if isinstance(config_value, basestring):
+    if isinstance(config_value, str):
       for token in wildcards:
         if wildcards[token]:
           config_value = config_value.replace(token, wildcards[token])
@@ -80,10 +87,10 @@ def __replace(config, wildcards, config_file):
   return config
 
 if __name__ == "__main__":
-  # pylint: disable=pointless-string-statement
+  # pylint: disable=pointless-string-statement,superfluous-parens
   """ helper main method used to verify config files, intended for manual verification only """
   if len(sys.argv) > 1:
     locations = load_state_manager_locations('local', sys.argv[1])
   else:
     locations = load_state_manager_locations('local')
-  print "locations: %s" % locations
+  print("locations: %s" % locations)

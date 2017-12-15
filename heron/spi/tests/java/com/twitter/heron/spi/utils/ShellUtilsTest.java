@@ -23,23 +23,11 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 public class ShellUtilsTest {
-
-  private static final Logger LOG = Logger.getLogger(ShellUtilsTest.class.getName());
-
-  private static void wait(int time, TimeUnit unit) {
-    try {
-      Thread.sleep(unit.toMillis(time));
-    } catch (InterruptedException e) {
-      LOG.log(Level.SEVERE, "Sleep interrupted ", e);
-    }
-  }
 
   private static String generateRandomLongString(int size) {
     StringBuilder builder = new StringBuilder();
@@ -53,11 +41,10 @@ public class ShellUtilsTest {
   @Test
   public void testRunProcess() {
     String testString = "testString";
-    StringBuilder stdout = new StringBuilder();
     StringBuilder stderr = new StringBuilder();
-    Assert.assertEquals(0, ShellUtils.runProcess(true, "echo " + testString, stdout, stderr));
-    Assert.assertEquals(testString, stdout.toString().trim());
-    Assert.assertTrue(stderr.toString().trim().isEmpty());
+    Assert.assertEquals(0, ShellUtils.runProcess("echo " + testString, stderr));
+    Assert.assertEquals(testString, stderr.toString().trim());
+    Assert.assertTrue(!stderr.toString().trim().isEmpty());
   }
 
   @Test(timeout = 60000)
@@ -73,13 +60,11 @@ public class ShellUtilsTest {
         input.close();
       }
       Assert.assertTrue("Cannot make the test script executable", testScript.setExecutable(true));
-      StringBuilder stdout = new StringBuilder();
       StringBuilder stderr = new StringBuilder();
       Assert.assertEquals(0,
-          ShellUtils.runProcess(true,
-              "/bin/bash -c " + testScript.getAbsolutePath(), stdout, stderr));
+          ShellUtils.runProcess(
+              "/bin/bash -c " + testScript.getAbsolutePath(), stderr));
       // Only checks stdout and stderr are not empty. Correctness is checked in "testRunProcess".
-      Assert.assertTrue(!stdout.toString().trim().isEmpty());
       Assert.assertTrue(!stderr.toString().trim().isEmpty());
     } finally {
       testScript.delete();
@@ -88,15 +73,25 @@ public class ShellUtilsTest {
 
   @Test
   public void testRunAsyncProcess() throws IOException {
-    String testString = "testString";
-    StringBuilder stdout = new StringBuilder();
-    StringBuilder stderr = new StringBuilder();
-    // Sleep 1 second and echo some text.
-    Process p = ShellUtils.runASyncProcess(
-        String.format("sleep 1 && echo %s", testString));
-    // Test process is running and input stream is empty
-    wait(10, TimeUnit.MILLISECONDS);
-    Assert.assertEquals(0, p.getInputStream().available());
+    Process p = ShellUtils.runASyncProcess("sleep 30");
+    try {
+      p.exitValue();
+      Assert.fail(p + " was dead");
+    } catch (IllegalThreadStateException e) {
+      // This is expected. If the process is alive, "exitValue" will throw
+      // IllegalThreadStateException
+    }
+    p.destroy();
+  }
+
+  @Test
+  public void testRunAsyncProcessRedirectErrorStream() throws IOException {
+    Process p = ShellUtils.runASyncProcess("/bin/bash blahblah.sh");
+    String stdout = ShellUtils.inputstreamToString(p.getInputStream());
+    // "blahblah.sh" doesn't exist so "bash" will output the error message to stderr. Since stderr
+    // is redirected to stdout, stdout should contain the error message.
+    Assert.assertTrue(stdout.contains("blahblah.sh: No such file or directory"));
+    p.destroy();
   }
 
   @Test
@@ -107,7 +102,7 @@ public class ShellUtilsTest {
   }
 
   @Test
-  public void testGetProcessBuilder() throws IOException {
+  public void testGetProcessBuilder() throws IOException, InterruptedException {
     String[] command = {"printenv"};
     Map<String, String> env = new HashMap<>();
     String key = "heron-shell-utils-test-env-key";
@@ -118,7 +113,7 @@ public class ShellUtilsTest {
 
     // Process running normally
     Process p = pb.start();
-    wait(10, TimeUnit.MILLISECONDS);
+    p.waitFor(2, TimeUnit.SECONDS);
     Assert.assertTrue(p.getInputStream().available() > 0);
 
     String output = ShellUtils.inputstreamToString(p.getInputStream());

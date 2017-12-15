@@ -25,14 +25,16 @@ import java.util.logging.Logger;
 import com.twitter.heron.api.Config;
 import com.twitter.heron.api.HeronTopology;
 import com.twitter.heron.api.generated.TopologyAPI;
+import com.twitter.heron.api.utils.TopologyUtils;
+import com.twitter.heron.common.basics.ByteAmount;
 import com.twitter.heron.common.basics.SingletonRegistry;
 import com.twitter.heron.common.config.SystemConfig;
+import com.twitter.heron.common.config.SystemConfigKey;
 import com.twitter.heron.proto.system.PhysicalPlans;
 import com.twitter.heron.simulator.executors.InstanceExecutor;
 import com.twitter.heron.simulator.executors.MetricsExecutor;
 import com.twitter.heron.simulator.executors.StreamExecutor;
 import com.twitter.heron.simulator.utils.PhysicalPlanUtil;
-import com.twitter.heron.spi.utils.TopologyUtils;
 
 /**
  * One Simulator instance can only submit one topology. Please have multiple Simulator instances
@@ -94,6 +96,12 @@ public class Simulator {
     SingletonRegistry.INSTANCE.registerSingleton(SystemConfig.HERON_SYSTEM_CONFIG, sysConfig);
   }
 
+  /**
+   * Submit and run topology in simulator
+   * @param name topology name
+   * @param heronConfig topology config
+   * @param heronTopology topology built from topology builder
+   */
   public void submitTopology(String name, Config heronConfig, HeronTopology heronTopology) {
     TopologyAPI.Topology topologyToRun =
         heronTopology.
@@ -104,6 +112,11 @@ public class Simulator {
 
     if (!TopologyUtils.verifyTopology(topologyToRun)) {
       throw new RuntimeException("Topology object is Malformed");
+    }
+
+    // TODO (nlu): add simulator support stateful processing
+    if (isTopologyStateful(heronConfig)) {
+      throw new RuntimeException("Stateful topology is not supported");
     }
 
     PhysicalPlans.PhysicalPlan pPlan = PhysicalPlanUtil.getPhysicalPlan(topologyToRun);
@@ -183,18 +196,18 @@ public class Simulator {
   }
 
   protected SystemConfig getSystemConfig() {
-    SystemConfig sysConfig = new SystemConfig();
-    sysConfig.put(SystemConfig.INSTANCE_SET_DATA_TUPLE_CAPACITY, 256);
-    sysConfig.put(SystemConfig.INSTANCE_SET_CONTROL_TUPLE_CAPACITY, 256);
-    sysConfig.put(SystemConfig.HERON_METRICS_EXPORT_INTERVAL_SEC, 60);
-    sysConfig.put(SystemConfig.INSTANCE_EXECUTE_BATCH_TIME_MS, 16);
-    sysConfig.put(SystemConfig.INSTANCE_EXECUTE_BATCH_SIZE_BYTES, 32768);
-    sysConfig.put(SystemConfig.INSTANCE_EMIT_BATCH_TIME_MS, 16);
-    sysConfig.put(SystemConfig.INSTANCE_EMIT_BATCH_SIZE_BYTES, 32768);
-    sysConfig.put(SystemConfig.INSTANCE_ACK_BATCH_TIME_MS, 128);
-    sysConfig.put(SystemConfig.INSTANCE_ACKNOWLEDGEMENT_NBUCKETS, 10);
+    SystemConfig.Builder builder = SystemConfig.newBuilder(true)
+        .put(SystemConfigKey.INSTANCE_SET_DATA_TUPLE_CAPACITY, 256)
+        .put(SystemConfigKey.INSTANCE_SET_CONTROL_TUPLE_CAPACITY, 256)
+        .put(SystemConfigKey.HERON_METRICS_EXPORT_INTERVAL, 60)
+        .put(SystemConfigKey.INSTANCE_EXECUTE_BATCH_TIME, 16)
+        .put(SystemConfigKey.INSTANCE_EXECUTE_BATCH_SIZE, ByteAmount.fromBytes(32768))
+        .put(SystemConfigKey.INSTANCE_EMIT_BATCH_TIME, 16)
+        .put(SystemConfigKey.INSTANCE_EMIT_BATCH_SIZE, ByteAmount.fromBytes(32768))
+        .put(SystemConfigKey.INSTANCE_ACK_BATCH_TIME, 128)
+        .put(SystemConfigKey.INSTANCE_ACKNOWLEDGEMENT_NBUCKETS, 10);
 
-    return sysConfig;
+    return builder.build();
   }
 
   /**
@@ -235,5 +248,13 @@ public class Simulator {
       // not owned by HeronInstance). To be safe, not sending these interrupts.
       Runtime.getRuntime().halt(1);
     }
+  }
+
+  private boolean isTopologyStateful(Config heronConfig) {
+    Config.TopologyReliabilityMode mode =
+        Config.TopologyReliabilityMode.valueOf(
+            String.valueOf(heronConfig.get(Config.TOPOLOGY_RELIABILITY_MODE)));
+
+    return Config.TopologyReliabilityMode.EFFECTIVELY_ONCE.equals(mode);
   }
 }

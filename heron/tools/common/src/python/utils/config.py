@@ -37,7 +37,12 @@ ETC_DIR = "etc"
 LIB_DIR = "lib"
 CLI_DIR = ".heron"
 RELEASE_YAML = "release.yaml"
+ZIPPED_RELEASE_YAML = "scripts/packages/release.yaml"
 OVERRIDE_YAML = "override.yaml"
+
+# mode of deployment
+DIRECT_MODE = 'direct'
+SERVER_MODE = 'server'
 
 # directories for heron sandbox
 SANDBOX_CONF_DIR = "./heron-conf"
@@ -45,16 +50,19 @@ SANDBOX_CONF_DIR = "./heron-conf"
 # config file for heron cli
 CLIENT_YAML = "client.yaml"
 
-# cli configs for role and env
-IS_ROLE_REQUIRED = "heron.config.is.role.required"
-IS_ENV_REQUIRED = "heron.config.is.env.required"
+# client configs for role and env for direct deployment
+ROLE_REQUIRED = "heron.config.is.role.required"
+ENV_REQUIRED = "heron.config.is.env.required"
 
+# client config for role and env for server deployment
+ROLE_KEY = "role.required"
+ENVIRON_KEY = "env.required"
 
 def create_tar(tar_filename, files, config_dir, config_files):
   '''
   Create a tar file with a given set of files
   '''
-  with contextlib.closing(tarfile.open(tar_filename, 'w:gz')) as tar:
+  with contextlib.closing(tarfile.open(tar_filename, 'w:gz', dereference=True)) as tar:
     for filename in files:
       if os.path.isfile(filename):
         tar.add(filename, arcname=os.path.basename(filename))
@@ -136,27 +144,36 @@ def get_heron_dir():
   its real path is '/Users/heron-user/.heron/bin/heron/tools/common/src/python/utils/config.pyc',
   the internal variable ``path`` would be '/Users/heron-user/.heron', which is the heron directory
 
-  :return: root location for heron-cli.
+  This means the variable `go_above_dirs` below is 9.
+
+  :return: root location of the .pex file
   """
-  path = "/".join(os.path.realpath(__file__).split('/')[:-9])
+  go_above_dirs = 9
+  path = "/".join(os.path.realpath(__file__).split('/')[:-go_above_dirs])
   return normalized_class_path(path)
 
+def get_zipped_heron_dir():
+  """
+  This will extract heron directory from .pex file,
+  with `zip_safe = False' Bazel flag added when building this .pex file
+
+  For example,
+  when __file__'s real path is
+    '/Users/heron-user/.pex/code/xxxyyy/heron/tools/common/src/python/utils/config.pyc', and
+  the internal variable ``path`` would be '/Users/heron-user/.pex/code/xxxyyy/',
+  which is the root PEX directory
+
+  This means the variable `go_above_dirs` below is 7.
+
+  :return: root location of the .pex file.
+  """
+  go_above_dirs = 7
+  path = "/".join(os.path.realpath(__file__).split('/')[:-go_above_dirs])
+  return normalized_class_path(path)
 
 ################################################################################
 # Get the root of heron dir and various sub directories depending on platform
 ################################################################################
-def get_heron_dir_explorer():
-  """
-  This will extract heron directory from .pex file.
-  From heron-cli with modification since we need to reuse cli's conf
-  :return: root location for heron-cli.
-  """
-  path_list = os.path.realpath(__file__).split('/')[:-10]
-  path_list.append(CLI_DIR)
-  path = "/".join(path_list)
-  return normalized_class_path(path)
-
-
 def get_heron_bin_dir():
   """
   This will provide heron bin directory from .pex file.
@@ -192,6 +209,17 @@ def get_heron_release_file():
   return os.path.join(get_heron_dir(), RELEASE_YAML)
 
 
+def get_zipped_heron_release_file():
+  """
+  This will provide the path to heron release.yaml file.
+  To be used for .pex file built with `zip_safe = False` flag.
+  For example, `heron-ui'.
+
+  :return: absolute path of heron release.yaml file
+  """
+  return os.path.join(get_zipped_heron_dir(), ZIPPED_RELEASE_YAML)
+
+
 def get_heron_cluster_conf_dir(cluster, default_config_path):
   """
   This will provide heron cluster config directory, if config path is default
@@ -219,12 +247,11 @@ def get_heron_cluster(cluster_role_env):
   """Get the cluster to which topology is submitted"""
   return cluster_role_env.split('/')[0]
 
-
-# pylint: disable=too-many-branches
+################################################################################
+# pylint: disable=too-many-branches,superfluous-parens
 def parse_cluster_role_env(cluster_role_env, config_path):
   """Parse cluster/[role]/[environ], supply default, if not provided, not required"""
   parts = cluster_role_env.split('/')[:3]
-  Log.info("Using config file under %s" % config_path)
   if not os.path.isdir(config_path):
     Log.error("Config path cluster directory does not exist: %s" % config_path)
     raise Exception("Invalid config path")
@@ -248,47 +275,139 @@ def parse_cluster_role_env(cluster_role_env, config_path):
         if tmp_confs is not None:
           cli_confs = tmp_confs
         else:
-          print "Failed to read: %s due to it is empty" % (CLIENT_YAML)
+          print("Failed to read: %s due to it is empty" % (CLIENT_YAML))
 
       # if role is required but not provided, raise exception
       if len(parts) == 1:
-        if (IS_ROLE_REQUIRED in cli_confs) and (cli_confs[IS_ROLE_REQUIRED] is True):
+        if (ROLE_REQUIRED in cli_confs) and (cli_confs[ROLE_REQUIRED] is True):
           raise Exception("role required but not provided (cluster/role/env = %s). See %s in %s"
-                          % (cluster_role_env, IS_ROLE_REQUIRED, CLIENT_YAML))
+                          % (cluster_role_env, ROLE_REQUIRED, cli_conf_file))
         else:
           parts.append(getpass.getuser())
 
       # if environ is required but not provided, raise exception
       if len(parts) == 2:
-        if (IS_ENV_REQUIRED in cli_confs) and (cli_confs[IS_ENV_REQUIRED] is True):
+        if (ENV_REQUIRED in cli_confs) and (cli_confs[ENV_REQUIRED] is True):
           raise Exception("environ required but not provided (cluster/role/env = %s). See %s in %s"
-                          % (cluster_role_env, IS_ENV_REQUIRED, CLIENT_YAML))
+                          % (cluster_role_env, ENV_REQUIRED, cli_conf_file))
         else:
           parts.append(ENVIRON)
 
   # if cluster or role or environ is empty, print
   if len(parts[0]) == 0 or len(parts[1]) == 0 or len(parts[2]) == 0:
-    print "Failed to parse"
+    print("Failed to parse")
     sys.exit(1)
 
   return (parts[0], parts[1], parts[2])
 
+################################################################################
+def get_cluster_role_env(cluster_role_env):
+  """Parse cluster/[role]/[environ], supply empty string, if not provided"""
+  parts = cluster_role_env.split('/')[:3]
+  if len(parts) == 3:
+    return (parts[0], parts[1], parts[2])
+
+  if len(parts) == 2:
+    return (parts[0], parts[1], "")
+
+  if len(parts) == 1:
+    return (parts[0], "", "")
+
+  return ("", "", "")
+
+################################################################################
+def direct_mode_cluster_role_env(cluster_role_env, config_path):
+  """Check cluster/[role]/[environ], if they are required"""
+
+  # otherwise, get the client.yaml file
+  cli_conf_file = os.path.join(config_path, CLIENT_YAML)
+
+  # if client conf doesn't exist, use default value
+  if not os.path.isfile(cli_conf_file):
+    return True
+
+  client_confs = {}
+  with open(cli_conf_file, 'r') as conf_file:
+    client_confs = yaml.load(conf_file)
+
+    # the return value of yaml.load can be None if conf_file is an empty file
+    if not client_confs:
+      return True
+
+    # if role is required but not provided, raise exception
+    role_present = True if len(cluster_role_env[1]) > 0 else False
+    if ROLE_REQUIRED in client_confs and client_confs[ROLE_REQUIRED] and not role_present:
+      raise Exception("role required but not provided (cluster/role/env = %s). See %s in %s"
+                      % (cluster_role_env, ROLE_REQUIRED, cli_conf_file))
+
+    # if environ is required but not provided, raise exception
+    environ_present = True if len(cluster_role_env[2]) > 0 else False
+    if ENV_REQUIRED in client_confs and client_confs[ENV_REQUIRED] and not environ_present:
+      raise Exception("environ required but not provided (cluster/role/env = %s). See %s in %s"
+                      % (cluster_role_env, ENV_REQUIRED, cli_conf_file))
+
+  return True
+
+################################################################################
+def server_mode_cluster_role_env(cluster_role_env, config_map):
+  """Check cluster/[role]/[environ], if they are required"""
+
+  cmap = config_map[cluster_role_env[0]]
+
+  # if role is required but not provided, raise exception
+  role_present = True if len(cluster_role_env[1]) > 0 else False
+  if ROLE_KEY in cmap and cmap[ROLE_KEY] and not role_present:
+    raise Exception("role required but not provided (cluster/role/env = %s)."\
+        % (cluster_role_env))
+
+  # if environ is required but not provided, raise exception
+  environ_present = True if len(cluster_role_env[2]) > 0 else False
+  if ENVIRON_KEY in cmap and cmap[ENVIRON_KEY] and not environ_present:
+    raise Exception("environ required but not provided (cluster/role/env = %s)."\
+        % (cluster_role_env))
+
+  return True
+
+################################################################################
+def defaults_cluster_role_env(cluster_role_env):
+  """
+  if role is not provided, supply userid
+  if environ is not provided, supply 'default'
+  """
+  if len(cluster_role_env[1]) == 0 and len(cluster_role_env[2]) == 0:
+    return (cluster_role_env[0], getpass.getuser(), ENVIRON)
+
+  return (cluster_role_env[0], cluster_role_env[1], cluster_role_env[2])
 
 ################################################################################
 # Parse the command line for overriding the defaults
 ################################################################################
-def parse_override_config(namespace):
-  """Parse the command line for overriding the defaults"""
+def parse_override_config_and_write_file(namespace):
+  """
+  Parse the command line for overriding the defaults and
+  create an override file.
+  """
+  overrides = parse_override_config(namespace)
   try:
     tmp_dir = tempfile.mkdtemp()
     override_config_file = os.path.join(tmp_dir, OVERRIDE_YAML)
     with open(override_config_file, 'w') as f:
-      for config in namespace:
-        f.write("%s\n" % config.replace('=', ': '))
+      f.write(yaml.dump(overrides))
 
     return override_config_file
   except Exception as e:
     raise Exception("Failed to parse override config: %s" % str(e))
+
+
+def parse_override_config(namespace):
+  """Parse the command line for overriding the defaults"""
+  overrides = dict()
+  for config in namespace:
+    kv = config.split("=")
+    if len(kv) != 2:
+      raise Exception("Invalid config property format (%s) expected key=value" % config)
+    overrides[kv[0]] = kv[1]
+  return overrides
 
 
 def get_java_path():
@@ -324,11 +443,38 @@ def check_release_file_exists():
 
   return True
 
-def print_version():
-  release_file = get_heron_release_file()
+def print_build_info(zipped_pex=False):
+  """Print build_info from release.yaml
+
+  :param zipped_pex: True if the PEX file is built with flag `zip_safe=False'.
+  """
+  if zipped_pex:
+    release_file = get_zipped_heron_release_file()
+  else:
+    release_file = get_heron_release_file()
+
+  with open(release_file) as release_info:
+    release_map = yaml.load(release_info)
+    release_items = sorted(release_map.items(), key=lambda tup: tup[0])
+    for key, value in release_items:
+      print("%s : %s" % (key, value))
+
+def get_version_number(zipped_pex=False):
+  """Print version from release.yaml
+
+  :param zipped_pex: True if the PEX file is built with flag `zip_safe=False'.
+  """
+  if zipped_pex:
+    release_file = get_zipped_heron_release_file()
+  else:
+    release_file = get_heron_release_file()
   with open(release_file) as release_info:
     for line in release_info:
-      print line,
+      trunks = line[:-1].split(' ')
+      if trunks[0] == 'heron.build.version':
+        return trunks[-1].replace("'", "")
+    return 'unknown'
+
 
 def insert_bool(param, command_args):
   '''

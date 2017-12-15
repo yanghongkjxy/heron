@@ -1,17 +1,18 @@
+HERONPY_VERSION = $(shell python -c "import yaml; print yaml.load(open('config.yaml', 'r'))['params']['versions']['heronpy']")
+
 setup:
 	scripts/setup.sh
 
 clean:
-	rm -rf public/* static/*
+	rm -rf public/* static/api static/style.css static/style*.css static/js
 
 serve:
-	@hugo server --watch --ignoreCache
+	@hugo serve --buildDrafts
 
 develop-static-assets:
 	@npm run develop
 
 build-static-assets:
-	@npm run clean
 	@npm run build
 
 pages:
@@ -23,16 +24,19 @@ linkchecker:
 javadocs:
 	@scripts/javadocs.sh
 
+python-docs:
+	@scripts/python-doc-gen.sh $(HERONPY_VERSION)
+
 site:
 	@make clean
 	@make build-static-assets
-	@make pages
 	@make javadocs
-	@make linkchecker
+	@make python-docs
+	@make pages
 
 travis-site:
 	@make clean
 	@make build-static-assets
-	@make pages
 	@scripts/javadocs.sh --travis
-	@make linkchecker
+	@make python-docs
+	@make pages

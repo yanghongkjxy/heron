@@ -17,7 +17,7 @@ import argparse
 import heron.tools.ui.src.python.consts as consts
 
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,superfluous-parens
 class _HelpAction(argparse._HelpAction):
   def __call__(self, parser, namespace, values, option_string=None):
     parser.print_help()
@@ -33,8 +33,8 @@ class _HelpAction(argparse._HelpAction):
     for subparsers_action in subparsers_actions:
       # get all subparsers and print help
       for choice, subparser in subparsers_action.choices.items():
-        print "Subparser '{}'".format(choice)
-        print subparser.format_help()
+        print("Subparser '{}'".format(choice))
+        print(subparser.format_help())
 
     parser.exit()
 
@@ -81,6 +81,12 @@ def add_arguments(parser):
       type=int,
       default=consts.DEFAULT_PORT)
 
+  parser.add_argument(
+      '--base_url',
+      metavar='(a string; the base url path if operating behind proxy; default: '
+      + str(consts.DEFAULT_BASE_URL) + ')',
+      default=consts.DEFAULT_BASE_URL)
+
   return parser
 
 
@@ -111,5 +117,11 @@ def create_parsers():
       help='Prints help',
       add_help=False)
 
+  version_parser = subparsers.add_parser(
+      'version',
+      help='Prints version',
+      add_help=True)
+
   help_parser.set_defaults(help=True)
+  version_parser.set_defaults(version=True)
   return (parser, child_parser)

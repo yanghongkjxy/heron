@@ -35,7 +35,7 @@ distribute the resulting `heron` CLI to all machines used to manage topologies.
 ### Common CLI Args
 
 All topology management commands (`submit`, `activate`, `deactivate`,
-`restart`, and `kill`) take the following required arguments:
+`restart`, `update` and `kill`) take the following required arguments:
 
 * `cluster` --- The name of the cluster where the command needs to be executed.
 
@@ -54,7 +54,7 @@ argument will be simply `local`.
 ### Optional CLI Flags
 
 CLI supports a common set of optional flags for all topology management commands
-(`submit`, `activate`, `deactivate`, `restart`, and `kill`):
+(`submit`, `activate`, `deactivate`, `restart`, `update` and `kill`):
 
 * `--config-path` --- Every heron cluster must provide a few configuration
   files that are kept under a directory named after the cluster. By default,
@@ -81,7 +81,7 @@ Topologies can be submitted in either an activated (default) or deactivated stat
 (more on [activation](#activating-a-topology) and [deactivation](#deactivating-a-topology)
 below).
 
-Here's the basic syntax:
+Below is the basic syntax:
 
 ```bash
 $ heron help submit
@@ -232,6 +232,42 @@ Arguments of the `restart` command:
 $ heron restart local/ads/PROD my-topology
 ```
 
+## Updating a Topology
+
+You can update the parallelism of any of the components of a deployed
+topology using the `update` command.
+
+```bash
+$ heron help update
+usage: heron update [options] cluster/[role]/[env] <topology-name> --component-parallelism <name:value>
+
+Required arguments:
+  cluster/[role]/[env]  Cluster, role, and environment to run topology
+  topology-name         Name of the topology
+
+Optional arguments:
+  --component-parallelism COMPONENT_PARALLELISM
+                        Component name and the new parallelism value colon-
+                        delimited: [component_name]:[parallelism]
+  --config-path (a string; path to cluster config; default: "/Users/billg/.heron/conf")
+  --config-property (key=value; a config key and its value; default: [])
+  --verbose (a boolean; default: "false")
+```
+
+Arguments of the `update` command include **cluster/[role]/[env]** and
+**topology-name** as well as:
+
+* **--component-parallelism** --- This argument can be included multiple
+times to change the parallelism of components in the deployed topology.
+
+### Example Topology Update Command
+
+```bash
+$ heron update local/ads/PROD my-topology \
+  --component-parallelism=my-spout:2 \
+  --component-parallelism=my-bolt:4
+```
+
 ## Killing a Topology
 
 If you've submitted a topology to your Heron cluster and would like to remove
@@ -254,6 +290,64 @@ Arguments of the `kill` command:
 
 ```bash
 $ heron kill local my-topology
+```
+
+## Heron CLI configuration
+
+When using the Heron CLI tool to interact with Heron clusters, there are two ways to provide configuration for the tool:
+
+* Via command-line flags, such as `--service-url`
+* Using the `heron config` interface, which enables you to set, unset, and list configs in the local filesystem
+
+### Available parameters
+
+The following parameters can currently be set using the `heron config` interface:
+
+Parameter | Description | Corresponding CLI flag
+:---------|:------------|:----------------------
+`service_url` | The service URL for the Heron cluster | `--service-url`
+
+### Set configuration
+
+You can set a config using the `set` command. Here's an example:
+
+```bash
+$ heron config us-west-staging set service_url http://us-west.staging.example.com:9000
+```
+
+### Unset configuration
+
+You can remove a parameter using the `unset` command. Here's an example:
+
+```bash
+$ heron config apac-australia unset service_url
+```
+
+### List configuration
+
+You can list all of the CLI configs for a Heron cluster using the `list` command. This will return the configs as a list of `parameter = value` pairs. Here's an example:
+
+```bash
+$ heron config local list
+service_url = http://localhost:9000
+```
+
+### Configuration example
+
+Let's say that you need to interact with a Heron cluster called `apac-japan-staging` which has a service
+URL of http://apac-japan.staging.example.com:9000. If you specified the service URL via CLI flags, you'd need
+to set the flag every time you perform an operation involving that cluster:
+
+```bash
+$ heron deactivate apac-japan-staging MyTopology \
+  --service-url http://apac-japan.staging.example.com:9000
+```
+
+Using `heron config`, however, you could set the service URL for that cluster once and for all:
+
+```bash
+$ heron config apac-japan-staging set service_url http://apac-japan.staging.example.com:9000
+$ heron deactivate apac-japan-staging MyTopology
 ```
 
 ## Other Commands

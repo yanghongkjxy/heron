@@ -123,6 +123,7 @@ def run(command, *args):
   return 1
 
 
+# pylint: disable=superfluous-parens
 def extract_common_args(command, parser, cl_args):
   """ extract common args """
   try:
@@ -132,7 +133,7 @@ def extract_common_args(command, parser, cl_args):
   except KeyError:
     # if some of the arguments are not found, print error and exit
     subparser = config.get_subparser(parser, command)
-    print subparser.format_help()
+    print(subparser.format_help())
     return dict()
   cluster = config.get_heron_cluster(cluster_role_env)
   config_path = config.get_heron_cluster_conf_dir(cluster, config_path)
@@ -145,7 +146,7 @@ def extract_common_args(command, parser, cl_args):
     new_cl_args['environ'] = cluster_tuple[2]
     new_cl_args['config_path'] = config_path
   except Exception as e:
-    Log.error("Unable to get valid topology location: %s" % str(e))
+    Log.error("Unable to get valid topology location: %s", str(e))
     return dict()
 
   cl_args.update(new_cl_args)
@@ -174,7 +175,7 @@ def main(args):
   command = command_line_args['subcommand']
 
   if unknown_args:
-    Log.error('Unknown argument: %s' % unknown_args[0])
+    Log.error('Unknown argument: %s', unknown_args[0])
     # show help message
     command_line_args['help-command'] = command
     command = 'help'
@@ -195,7 +196,7 @@ def main(args):
 
   if command != 'help':
     sys.stdout.flush()
-    Log.info('Elapsed time: %.3fs.' % (end - start))
+    Log.info('Elapsed time: %.3fs.', (end - start))
 
   return 0 if ret else 1
 

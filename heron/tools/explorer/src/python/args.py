@@ -16,7 +16,7 @@ import os
 import heron.tools.common.src.python.utils.config as config
 
 # default parameter - url to connect to heron tracker
-DEFAULT_TRACKER_URL = "http://localhost:8888"
+DEFAULT_TRACKER_URL = "http://127.0.0.1:8888"
 
 
 # add argument for config file path
@@ -28,7 +28,7 @@ def add_config(parser):
   parser.add_argument(
       '--config-path',
       metavar='(a string; path to cluster config; default: "' + default_config_path + '")',
-      default=os.path.join(config.get_heron_dir_explorer(), default_config_path))
+      default=os.path.join(config.get_heron_dir(), default_config_path))
 
   return parser
 

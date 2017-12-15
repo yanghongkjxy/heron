@@ -1,6 +1,6 @@
 package(default_visibility = ["//visibility:public"])
 
-load("/tools/rules/pex_rules", "pex_library")
+load("/tools/rules/pex/pex_rules", "pex_library")
 
 pex_library(
     name = "tracker-py",
@@ -16,5 +16,6 @@ pex_library(
     ),
     deps = [
         "//heron/common/src/python:common-py",
-    ]
+    ],
+    reqs = ["PyYAML==3.10"],
 )

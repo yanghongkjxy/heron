@@ -21,10 +21,11 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Logger;
 
+import com.twitter.heron.api.Config;
 import com.twitter.heron.api.generated.TopologyAPI;
 import com.twitter.heron.api.grouping.CustomStreamGrouping;
-import com.twitter.heron.api.topology.TopologyContext;
 import com.twitter.heron.api.utils.Utils;
 import com.twitter.heron.common.utils.metrics.MetricsCollector;
 import com.twitter.heron.common.utils.topology.TopologyContextImpl;
@@ -35,6 +36,8 @@ import com.twitter.heron.proto.system.PhysicalPlans;
  */
 
 public class PhysicalPlanHelper {
+  private static final Logger LOG = Logger.getLogger(PhysicalPlanHelper.class.getName());
+
   private final PhysicalPlans.PhysicalPlan pplan;
   private final int myTaskId;
   private final String myComponent;
@@ -55,9 +58,7 @@ public class PhysicalPlanHelper {
   /**
    * Constructor for physical plan helper
    */
-  public PhysicalPlanHelper(
-      PhysicalPlans.PhysicalPlan pplan,
-      String instanceId) {
+  public PhysicalPlanHelper(PhysicalPlans.PhysicalPlan pplan, String instanceId) {
     this.pplan = pplan;
 
     // Get my instance
@@ -97,13 +98,12 @@ public class PhysicalPlanHelper {
     // setup outputSchema
     outputSchema = new HashMap<String, Integer>();
     List<TopologyAPI.OutputStream> outputs;
-    TopologyAPI.Component comp;
     if (mySpout != null) {
       outputs = mySpout.getOutputsList();
-      comp = mySpout.getComp();
+      component = mySpout.getComp();
     } else {
       outputs = myBolt.getOutputsList();
-      comp = myBolt.getComp();
+      component = myBolt.getComp();
     }
     for (TopologyAPI.OutputStream outputStream : outputs) {
       outputSchema.put(outputStream.getStream().getId(),
@@ -115,8 +115,6 @@ public class PhysicalPlanHelper {
     } catch (UnknownHostException e) {
       throw new RuntimeException("GetHostName failed");
     }
-
-    component = comp;
 
     // Do some setup for any custom grouping
     customGrouper = new CustomStreamGroupingHelper();
@@ -132,7 +130,7 @@ public class PhysicalPlanHelper {
               (CustomStreamGrouping) Utils.deserialize(
                   inputStream.getCustomGroupingObject().toByteArray());
           customGrouper.add(inputStream.getStream().getId(),
-              GetTaskIdsAsListForComponent(topo.getBolts(i).getComp().getName()),
+              getTaskIdsAsListForComponent(topo.getBolts(i).getComp().getName()),
               customStreamGrouping, myComponent);
         }
       }
@@ -199,29 +197,31 @@ public class PhysicalPlanHelper {
 
   public void setTopologyContext(MetricsCollector metricsCollector) {
     topologyContext =
-        new TopologyContextImpl(constructConfig(pplan.getTopology().getTopologyConfig(), component),
+        new TopologyContextImpl(mergeConfigs(pplan.getTopology().getTopologyConfig(), component),
             pplan.getTopology(), makeTaskToComponentMap(), myTaskId, metricsCollector);
   }
 
-  private Map<String, Object> constructConfig(TopologyAPI.Config config,
-                                              TopologyAPI.Component acomponent) {
-    Map<String, Object> retval = new HashMap<String, Object>();
+  private Map<String, Object> mergeConfigs(TopologyAPI.Config config,
+                                           TopologyAPI.Component acomponent) {
+    LOG.info("Building configs for component: " + myComponent);
+
+    Map<String, Object> map = new HashMap<>();
+    addConfigsToMap(config, map);
+    LOG.info("Added topology-level configs: " + map.toString());
+
+    addConfigsToMap(acomponent.getConfig(), map); // Override any component specific configs
+    LOG.info("Added component-specific configs: " + map.toString());
+    return map;
+  }
+
+  private void addConfigsToMap(TopologyAPI.Config config, Map<String, Object> map) {
     for (TopologyAPI.Config.KeyValue kv : config.getKvsList()) {
       if (kv.hasValue()) {
-        retval.put(kv.getKey(), kv.getValue());
+        map.put(kv.getKey(), kv.getValue());
       } else {
-        retval.put(kv.getKey(), Utils.deserialize(kv.getSerializedValue().toByteArray()));
+        map.put(kv.getKey(), Utils.deserialize(kv.getSerializedValue().toByteArray()));
       }
     }
-    // Override any component specific configs
-    for (TopologyAPI.Config.KeyValue kv : acomponent.getConfig().getKvsList()) {
-      if (kv.hasValue()) {
-        retval.put(kv.getKey(), kv.getValue());
-      } else {
-        retval.put(kv.getKey(), Utils.deserialize(kv.getSerializedValue().toByteArray()));
-      }
-    }
-    return retval;
   }
 
   private Map<Integer, String> makeTaskToComponentMap() {
@@ -233,7 +233,7 @@ public class PhysicalPlanHelper {
     return retval;
   }
 
-  private List<Integer> GetTaskIdsAsListForComponent(String comp) {
+  private List<Integer> getTaskIdsAsListForComponent(String comp) {
     List<Integer> retval = new LinkedList<Integer>();
     for (PhysicalPlans.Instance instance : pplan.getInstancesList()) {
       if (instance.getInfo().getComponentName().equals(comp)) {
@@ -243,8 +243,8 @@ public class PhysicalPlanHelper {
     return retval;
   }
 
-  public void prepareForCustomStreamGrouping(TopologyContext context) {
-    customGrouper.prepare(context);
+  public void prepareForCustomStreamGrouping() {
+    customGrouper.prepare(topologyContext);
   }
 
   public List<Integer> chooseTasksForCustomStreamGrouping(String streamId, List<Object> values) {
@@ -256,7 +256,6 @@ public class PhysicalPlanHelper {
   }
 
   private HashSet<String> getTerminatedComponentSet() {
-    Map<String, TopologyAPI.Bolt> bolts = new HashMap<>();
     Map<String, TopologyAPI.Spout> spouts = new HashMap<>();
     Map<String, HashSet<String>> prev = new HashMap<>();
 
@@ -269,7 +268,6 @@ public class PhysicalPlanHelper {
     // by looking only on bolts, since spout will not have parents
     for (TopologyAPI.Bolt bolt : pplan.getTopology().getBoltsList()) {
       String name = bolt.getComp().getName();
-      bolts.put(name, bolt);
 
       // To get the parent's component to construct a graph of topology structure
       for (TopologyAPI.InputStream inputStream : bolt.getInputsList()) {
@@ -311,6 +309,22 @@ public class PhysicalPlanHelper {
 
   public boolean isCustomGroupingEmpty() {
     return customGrouper.isCustomGroupingEmpty();
+  }
+
+  public boolean isTopologyStateful() {
+    Map<String, Object> config = topologyContext.getTopologyConfig();
+    if (config.get(Config.TOPOLOGY_RELIABILITY_MODE) == null) {
+      return false;
+    }
+    Config.TopologyReliabilityMode mode =
+        Config.TopologyReliabilityMode.valueOf(
+            String.valueOf(config.get(Config.TOPOLOGY_RELIABILITY_MODE)));
+
+    return Config.TopologyReliabilityMode.EFFECTIVELY_ONCE.equals(mode);
+  }
+
+  public boolean isTopologyRunning() {
+    return getTopologyState().equals(TopologyAPI.TopologyState.RUNNING);
   }
 }
 
